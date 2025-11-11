@@ -15,3 +15,7 @@ Other Tasks:
 - CI
 - good command line parser and good `-h` 
 - spack package so it can be installed using spack.
+
+
+Current list of deps:
+- googletest

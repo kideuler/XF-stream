@@ -1,0 +1,10 @@
+cmake_minimum_required(VERSION 3.20)
+
+project(XFStream VERSION 0.0.0 DESCRIPTION "XFStream library" LANGUAGES CXX)
+
+add_subdirectory(src)
+
+include(CTest)
+enable_testing()
+
+add_subdirectory(test)
