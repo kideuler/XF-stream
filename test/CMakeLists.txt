@@ -21,6 +21,7 @@ endif()
 add_executable(test_nurbs
 	test_nurbs.cxx
 	test_loop_builder.cxx
+	test_region_builder.cxx
 )
 target_link_libraries(test_nurbs PRIVATE ${GTEST_MAIN_TARGET} ${GTEST_LIB_TARGET} XFStream)
 target_compile_features(test_nurbs PRIVATE cxx_std_17)
