@@ -56,7 +56,6 @@ TEST(Nurbs, InterpolateCircle) {
     // Evaluate at parameter sites used for interpolation (approximated by chord-length from implementation)
     // We don't expose the parameterization, but evaluating at knots near interior averages should be fine; instead
     // we check the curve passes close to the original samples by searching for closest parameter with a small grid.
-    auto radius_err = [&](const Nurbs::Point& p){ return std::fabs(std::sqrt(p[0]*p[0]+p[1]*p[1]) - 1.0); };
     double maxErr = 0.0;
     for (const auto& s : pts) {
         // Coarse search over u

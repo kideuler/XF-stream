@@ -15,6 +15,71 @@ bool is_non_decreasing(const std::vector<T>& v) {
 	}
 	return true;
 }
+
+// Local helpers for interpolation (placed in anonymous namespace)
+static int interp_findSpan(double u, int p, int n, const std::vector<double>& U) {
+	if (u >= U[static_cast<std::size_t>(n + 1)]) return n;
+	if (u <= U[static_cast<std::size_t>(p)]) return p;
+	int low = p;
+	int high = n + 1;
+	int mid = (low + high) / 2;
+	while (u < U[static_cast<std::size_t>(mid)] || u >= U[static_cast<std::size_t>(mid + 1)]) {
+		if (u < U[static_cast<std::size_t>(mid)]) high = mid; else low = mid;
+		mid = (low + high) / 2;
+	}
+	return mid;
+}
+
+static void interp_basisFuns(int span, double u, int p, const std::vector<double>& U, std::vector<double>& N) {
+	N.assign(static_cast<std::size_t>(p + 1), 0.0);
+	std::vector<double> left(static_cast<std::size_t>(p + 1), 0.0), right(static_cast<std::size_t>(p + 1), 0.0);
+	N[0] = 1.0;
+	for (int j = 1; j <= p; ++j) {
+		left[static_cast<std::size_t>(j)] = u - U[static_cast<std::size_t>(span + 1 - j)];
+		right[static_cast<std::size_t>(j)] = U[static_cast<std::size_t>(span + j)] - u;
+		double saved = 0.0;
+		for (int r = 0; r < j; ++r) {
+			const double denom = right[static_cast<std::size_t>(r + 1)] + left[static_cast<std::size_t>(j - r)];
+			double temp = 0.0;
+			if (denom != 0.0) temp = N[static_cast<std::size_t>(r)] / denom;
+			N[static_cast<std::size_t>(r)] = saved + right[static_cast<std::size_t>(r + 1)] * temp;
+			saved = left[static_cast<std::size_t>(j - r)] * temp;
+		}
+		N[static_cast<std::size_t>(j)] = saved;
+	}
+}
+
+static std::vector<double> interp_solveDense(const std::vector<double>& A_in, const std::vector<double>& bx, int Nsize) {
+	std::vector<double> M = A_in; // copy
+	std::vector<double> b = bx;
+	for (int i = 0; i < Nsize; ++i) {
+		int piv = i;
+		double maxv = std::fabs(M[static_cast<std::size_t>(i * Nsize + i)]);
+		for (int r = i + 1; r < Nsize; ++r) {
+			double v = std::fabs(M[static_cast<std::size_t>(r * Nsize + i)]);
+			if (v > maxv) { maxv = v; piv = r; }
+		}
+		if (maxv == 0.0) throw std::runtime_error("Interpolate: singular system");
+		if (piv != i) {
+			for (int c = i; c < Nsize; ++c) std::swap(M[static_cast<std::size_t>(i * Nsize + c)], M[static_cast<std::size_t>(piv * Nsize + c)]);
+			std::swap(b[i], b[piv]);
+		}
+		const double diag = M[static_cast<std::size_t>(i * Nsize + i)];
+		for (int r = i + 1; r < Nsize; ++r) {
+			const double factor = M[static_cast<std::size_t>(r * Nsize + i)] / diag;
+			if (factor == 0.0) continue;
+			for (int c = i; c < Nsize; ++c) M[static_cast<std::size_t>(r * Nsize + c)] -= factor * M[static_cast<std::size_t>(i * Nsize + c)];
+			b[r] -= factor * b[i];
+		}
+	}
+	std::vector<double> x(static_cast<std::size_t>(Nsize), 0.0);
+	for (int i = Nsize - 1; i >= 0; --i) {
+		double s = b[i];
+		for (int c = i + 1; c < Nsize; ++c) s -= M[static_cast<std::size_t>(i * Nsize + c)] * x[static_cast<std::size_t>(c)];
+		x[static_cast<std::size_t>(i)] = s / M[static_cast<std::size_t>(i * Nsize + i)];
+	}
+	return x;
+}
 }
 
 Nurbs::Nurbs() = default;
@@ -246,92 +311,24 @@ Nurbs Nurbs::interpolate(const std::vector<Point>& Q, int p) {
 	// Build coefficient matrix A (size (n+1)x(n+1)) banded width (p+1)
 	const int Nsize = n + 1;
 	std::vector<double> A(static_cast<std::size_t>(Nsize * Nsize), 0.0);
-	// We’ll compute spans using the same knot vector; re-implement local findSpan over U
-	auto spanOf = [&](double u) {
-		int low = p;
-		int high = n + 1;
-		if (u >= U[static_cast<std::size_t>(n + 1)]) return n;
-		if (u <= U[static_cast<std::size_t>(p)]) return p;
-		int mid = (low + high) / 2;
-		while (u < U[static_cast<std::size_t>(mid)] || u >= U[static_cast<std::size_t>(mid + 1)]) {
-			if (u < U[static_cast<std::size_t>(mid)]) high = mid; else low = mid;
-			mid = (low + high) / 2;
-		}
-		return mid;
-	};
+	// We’ll compute spans using the same knot vector; use helper interp_findSpan
 
 	// Fill A
 	std::vector<double> Np(static_cast<std::size_t>(p + 1), 0.0);
 	for (int k = 0; k <= n; ++k) {
-		int span = spanOf(Ubar[k]);
-		// Compute basis N_{span-p..span}
-		// Temporarily use basisFuns with U by shadowing knots via local copy of algorithm
-		// Implement local basis computation to avoid mutating state
-		auto localBasisFuns = [&](int sp, double u, std::vector<double>& N) {
-			N.assign(static_cast<std::size_t>(p + 1), 0.0);
-			std::vector<double> left(static_cast<std::size_t>(p + 1), 0.0), right(static_cast<std::size_t>(p + 1), 0.0);
-			N[0] = 1.0;
-			for (int j = 1; j <= p; ++j) {
-				left[static_cast<std::size_t>(j)] = u - U[static_cast<std::size_t>(sp + 1 - j)];
-				right[static_cast<std::size_t>(j)] = U[static_cast<std::size_t>(sp + j)] - u;
-				double saved = 0.0;
-				for (int r = 0; r < j; ++r) {
-					const double denom = right[static_cast<std::size_t>(r + 1)] + left[static_cast<std::size_t>(j - r)];
-					double temp = 0.0;
-					if (denom != 0.0) temp = N[static_cast<std::size_t>(r)] / denom;
-					N[static_cast<std::size_t>(r)] = saved + right[static_cast<std::size_t>(r + 1)] * temp;
-					saved = left[static_cast<std::size_t>(j - r)] * temp;
-				}
-				N[static_cast<std::size_t>(j)] = saved;
-			}
-		};
-		localBasisFuns(span, Ubar[k], Np);
+		int span = interp_findSpan(Ubar[k], p, n, U);
+		interp_basisFuns(span, Ubar[k], p, U, Np);
 		for (int j = 0; j <= p; ++j) {
 			int col = span - p + j;
 			A[static_cast<std::size_t>(k * Nsize + col)] = Np[static_cast<std::size_t>(j)];
 		}
 	}
 
-	// Solve A * P = Q for P (two RHS: x and y). Use simple Gaussian elimination with partial pivoting.
-	auto solveDense = [&](const std::vector<double>& A_in, const std::vector<double>& bx) -> std::vector<double> {
-		std::vector<double> M = A_in; // copy
-		std::vector<double> b = bx;
-		for (int i = 0; i < Nsize; ++i) {
-			// Pivot
-			int piv = i;
-			double maxv = std::fabs(M[static_cast<std::size_t>(i * Nsize + i)]);
-			for (int r = i + 1; r < Nsize; ++r) {
-				double v = std::fabs(M[static_cast<std::size_t>(r * Nsize + i)]);
-				if (v > maxv) { maxv = v; piv = r; }
-			}
-			if (maxv == 0.0) throw std::runtime_error("Interpolate: singular system");
-			if (piv != i) {
-				for (int c = i; c < Nsize; ++c) std::swap(M[static_cast<std::size_t>(i * Nsize + c)], M[static_cast<std::size_t>(piv * Nsize + c)]);
-				std::swap(b[i], b[piv]);
-			}
-			// Eliminate
-			const double diag = M[static_cast<std::size_t>(i * Nsize + i)];
-			for (int r = i + 1; r < Nsize; ++r) {
-				const double factor = M[static_cast<std::size_t>(r * Nsize + i)] / diag;
-				if (factor == 0.0) continue;
-				for (int c = i; c < Nsize; ++c) M[static_cast<std::size_t>(r * Nsize + c)] -= factor * M[static_cast<std::size_t>(i * Nsize + c)];
-				b[r] -= factor * b[i];
-			}
-		}
-		// Back-substitute
-		std::vector<double> x(static_cast<std::size_t>(Nsize), 0.0);
-		for (int i = Nsize - 1; i >= 0; --i) {
-			double s = b[i];
-			for (int c = i + 1; c < Nsize; ++c) s -= M[static_cast<std::size_t>(i * Nsize + c)] * x[static_cast<std::size_t>(c)];
-			x[static_cast<std::size_t>(i)] = s / M[static_cast<std::size_t>(i * Nsize + i)];
-		}
-		return x;
-	};
 
 	std::vector<double> bx(static_cast<std::size_t>(Nsize), 0.0), by(static_cast<std::size_t>(Nsize), 0.0);
 	for (int i = 0; i <= n; ++i) { bx[static_cast<std::size_t>(i)] = Q[static_cast<std::size_t>(i)][0]; by[static_cast<std::size_t>(i)] = Q[static_cast<std::size_t>(i)][1]; }
-	std::vector<double> Px = solveDense(A, bx);
-	std::vector<double> Py = solveDense(A, by);
+	std::vector<double> Px = interp_solveDense(A, bx, Nsize);
+	std::vector<double> Py = interp_solveDense(A, by, Nsize);
 
 	std::vector<Point> Pts(static_cast<std::size_t>(Nsize));
 	for (int i = 0; i <= n; ++i) Pts[static_cast<std::size_t>(i)] = Point{Px[static_cast<std::size_t>(i)], Py[static_cast<std::size_t>(i)]};

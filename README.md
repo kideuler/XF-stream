@@ -12,6 +12,7 @@ The general steps of this project will be the following:
 
 Other Tasks:
 - Cmake
+- maybe some spack CI? and cacheing the build so it doesnt do everything every CI run.
 - CI
 - good command line parser and good `-h` 
 - spack package so it can be installed using spack.

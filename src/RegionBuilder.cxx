@@ -3,6 +3,24 @@
 #include <cmath>
 #include <algorithm>
 
+namespace {
+static double polygonArea(const std::vector<Nurbs::Point>& poly) {
+    double a = 0.0; for (std::size_t k = 0; k < poly.size(); ++k){ const auto& A=poly[k]; const auto& B=poly[(k+1)%poly.size()]; a += A[0]*B[1]-B[0]*A[1]; } return std::fabs(a)*0.5;
+}
+
+struct Box { double minx, miny, maxx, maxy; };
+
+static Box computeBox(const std::vector<Nurbs::Point>& poly){
+    Box b{poly[0][0], poly[0][1], poly[0][0], poly[0][1]};
+    for (const auto& p : poly) { b.minx = std::min(b.minx, p[0]); b.miny = std::min(b.miny, p[1]); b.maxx = std::max(b.maxx, p[0]); b.maxy = std::max(b.maxy, p[1]); }
+    return b;
+}
+
+static bool boxContains(const Box& A, const Box& B, double tol){
+    return A.minx - tol <= B.minx && A.miny - tol <= B.miny && A.maxx + tol >= B.maxx && A.maxy + tol >= B.maxy;
+}
+}
+
 // Sample each curve segment with 'samplesPerCurve_' points (uniform in parameter range).
 std::vector<Nurbs::Point> RegionBuilder::sampleLoop(const std::vector<Nurbs>& curves, const Loop& L) const {
     std::vector<Nurbs::Point> pts;
@@ -71,28 +89,16 @@ std::vector<Region> RegionBuilder::buildRegions(const std::vector<Nurbs>& curves
 
     // Determine containment graph: loop A contains loop B if B's representative point lies inside A.
     std::size_t m = geoms.size();
-    auto polyArea = [&](const std::vector<Nurbs::Point>& poly){
-        double a = 0.0; for (std::size_t k = 0; k < poly.size(); ++k){ const auto& A=poly[k]; const auto& B=poly[(k+1)%poly.size()]; a += A[0]*B[1]-B[0]*A[1]; } return std::fabs(a)*0.5; };
     std::vector<double> areas(m, 0.0);
-    for (std::size_t i = 0; i < m; ++i) areas[i] = polyArea(geoms[i].poly);
-
-    struct Box { double minx, miny, maxx, maxy; };
-    auto computeBox = [](const std::vector<Nurbs::Point>& poly){
-        Box b{poly[0][0], poly[0][1], poly[0][0], poly[0][1]};
-        for (const auto& p : poly) { b.minx = std::min(b.minx, p[0]); b.miny = std::min(b.miny, p[1]); b.maxx = std::max(b.maxx, p[0]); b.maxy = std::max(b.maxy, p[1]); }
-        return b;
-    };
+    for (std::size_t i = 0; i < m; ++i) areas[i] = polygonArea(geoms[i].poly);
     std::vector<Box> boxes(m);
     for (std::size_t i = 0; i < m; ++i) boxes[i] = computeBox(geoms[i].poly);
-    auto boxContains = [&](const Box& A, const Box& B){
-        return A.minx - tol_ <= B.minx && A.miny - tol_ <= B.miny && A.maxx + tol_ >= B.maxx && A.maxy + tol_ >= B.maxy;
-    };
     std::vector<std::vector<std::size_t>> children(m); // indices of loops contained by i
     std::vector<int> parent(m, -1);
     for (std::size_t i = 0; i < m; ++i) {
         for (std::size_t j = 0; j < m; ++j) if (i != j) {
             // Only allow larger area loops to contain smaller ones to avoid mutual containment cycles
-            if (areas[i] > areas[j] && boxContains(boxes[i], boxes[j]) && pointInPolygon(geoms[i].poly, geoms[j].repr, tol_)) {
+            if (areas[i] > areas[j] && boxContains(boxes[i], boxes[j], tol_) && pointInPolygon(geoms[i].poly, geoms[j].repr, tol_)) {
                 // i contains j; assign parent if more outer than existing
                 if (parent[j] == -1) parent[j] = static_cast<int>(i);
                 else {
@@ -125,7 +131,7 @@ std::vector<Region> RegionBuilder::buildRegions(const std::vector<Nurbs>& curves
             // Any loops contained by this (by centroid) become holes; disjoint loops will start their own region
             for (std::size_t j = 0; j < m; ++j) {
                 if (assigned[j] || j == i) continue;
-                if (areas[i] > areas[j] && boxContains(boxes[i], boxes[j]) && pointInPolygon(geoms[i].poly, geoms[j].repr, tol_)) {
+                if (areas[i] > areas[j] && boxContains(boxes[i], boxes[j], tol_) && pointInPolygon(geoms[i].poly, geoms[j].repr, tol_)) {
                     R.inners.push_back(geoms[j].loop); assigned[j] = 1;
                 }
             }
@@ -133,12 +139,17 @@ std::vector<Region> RegionBuilder::buildRegions(const std::vector<Nurbs>& curves
         }
     }
     // Sort regions by decreasing area for consistency
-    std::sort(regions.begin(), regions.end(), [&](const Region& a, const Region& b){
-        // approximate area of outer polygons
-        auto areaOf = [&](const Loop& L){
-            auto poly = sampleLoop(curves, L);
-            double A = 0.0; for (std::size_t k = 0; k < poly.size(); ++k){ const auto& P=poly[k]; const auto& Q=poly[(k+1)%poly.size()]; A += P[0]*Q[1]-Q[0]*P[1]; } return std::fabs(A)*0.5; };
-        return areaOf(a.outer) > areaOf(b.outer);
-    });
+    struct RegionAreaComparator {
+        const RegionBuilder* self;
+        const std::vector<Nurbs>* curvesPtr;
+        double areaOf(const Loop& L) const {
+            auto poly = self->sampleLoop(*curvesPtr, L);
+            return polygonArea(poly);
+        }
+        bool operator()(const Region& a, const Region& b) const {
+            return areaOf(a.outer) > areaOf(b.outer);
+        }
+    } cmp{this, &curves};
+    std::sort(regions.begin(), regions.end(), cmp);
     return regions;
 }
