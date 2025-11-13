@@ -3,6 +3,7 @@ add_library(XFStream STATIC
 	LoopBuilder.cxx
 	RegionBuilder.cxx
 	MeshGenerator.cxx
+	NbsIO.cxx
 )
 
 target_include_directories(XFStream PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

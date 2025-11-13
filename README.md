@@ -20,3 +20,13 @@ Other Tasks:
 
 Current list of deps:
 - googletest
+- gmsh
+
+Prompts:
+#codebase okay, now for something also hard. I want a new hxx, cxx file which stores the mesh created from gmsh, it should be a class with all public elements and has the following:
+
+int nelems; // number of elements.
+int nv; // number of verts.
+std::vector<std::array<int,3>> elems; // topology of tris.
+std::vector<std::array<diuble,2>> verts; // point locations.
+std::vector<int> vbdy; // vector of points indices that are on the boundary. (includes )
