@@ -26,6 +26,7 @@ Other Tasks:
 Current list of deps:
 - googletest
 - gmsh
+- mfem
 
 Prompts:
 #codebase okay, now for something also hard. I want a new hxx, cxx file which stores the mesh created from gmsh, it should be a class with all public elements and has the following:
