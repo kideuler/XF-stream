@@ -33,35 +33,37 @@ namespace NbsIO {
 // Whitespace separated tokens.
 // Curve forms:
 // 1) Explicit:
-//    curve degree <p>
+//    curve id <cid> degree <p>
 //    knots <k0> <k1> ... <km>
 //    weights <w0> <w1> ... <wn>
 //    ctrl <x0> <y0>  <x1> <y1> ... <xn> <yn>
 //    endcurve
 //
 // 2) Interpolate:
-//    interpolate degree <p>
+//    interpolate id <cid> degree <p>
 //    points <x0> <y0>  <x1> <y1> ... <xN> <yN>
 //    endcurve
 //
 
-static void resetCurve(int& degree, std::vector<double>& knots, std::vector<double>& weights,
+static void resetCurve(int& id, int& degree, std::vector<double>& knots, std::vector<double>& weights,
                        std::vector<Nurbs::Point>& ctrl, std::vector<Nurbs::Point>& points) {
-    degree = -1; knots.clear(); weights.clear(); ctrl.clear(); points.clear();
+    id = -1; degree = -1; knots.clear(); weights.clear(); ctrl.clear(); points.clear();
 }
 
-static void finishExplicitOrThrow(int degree, const std::vector<double>& knots, const std::vector<double>& weights,
+static void finishExplicitOrThrow(int id, int degree, const std::vector<double>& knots, const std::vector<double>& weights,
                                   const std::vector<Nurbs::Point>& ctrl, std::vector<Nurbs>& out) {
     if (degree < 0 || ctrl.empty() || knots.empty()) throw std::runtime_error("NBS: incomplete explicit curve");
     if (!weights.empty() && weights.size() != ctrl.size()) throw std::runtime_error("NBS: weights size mismatch");
     Nurbs c(degree, ctrl, knots, weights);
     std::string why; if (!c.isValid(&why)) throw std::runtime_error(std::string("NBS: invalid explicit curve: ")+why);
+    if (id >= 0) c.setId(id);
     out.push_back(std::move(c));
 }
 
-static void finishInterpOrThrow(int degree, const std::vector<Nurbs::Point>& points, std::vector<Nurbs>& out) {
+static void finishInterpOrThrow(int id, int degree, const std::vector<Nurbs::Point>& points, std::vector<Nurbs>& out) {
     if (degree < 0 || points.size() < static_cast<std::size_t>(degree+1)) throw std::runtime_error("NBS: insufficient points for interpolation");
     Nurbs c = Nurbs::interpolate(points, degree);
+    if (id >= 0) c.setId(id);
     out.push_back(std::move(c));
 }
 
@@ -72,11 +74,12 @@ bool readFile(const std::string& path, std::vector<Nurbs>& out) {
     std::vector<std::string> toks;
     enum class State { Idle, InCurveExplicit, InCurveInterp };
     State st = State::Idle;
+    int id = -1;
     int degree = -1;
     std::vector<double> knots, weights;
     std::vector<Nurbs::Point> ctrl;
     std::vector<Nurbs::Point> points;
-    resetCurve(degree, knots, weights, ctrl, points);
+    resetCurve(id, degree, knots, weights, ctrl, points);
 
     while (std::getline(ifs, line)) {
         // Strip inline comments after '#'
@@ -90,17 +93,28 @@ bool readFile(const std::string& path, std::vector<Nurbs>& out) {
         if (toks.empty()) continue;
         if (st == State::Idle) {
             if (toks[0] == "curve") {
-                st = State::InCurveExplicit; resetCurve(degree, knots, weights, ctrl, points);
-                if (toks.size() >= 3 && toks[1] == "degree") degree = std::stoi(toks[2]);
+                st = State::InCurveExplicit; resetCurve(id, degree, knots, weights, ctrl, points);
+                // Parse optional id and degree tokens. Accept forms:
+                // curve degree <p>
+                // curve id <cid> degree <p>
+                for (std::size_t i = 1; i+1 < toks.size(); ++i) {
+                    if (toks[i] == "id" && i+1 < toks.size()) { id = std::stoi(toks[i+1]); }
+                    if (toks[i] == "degree" && i+1 < toks.size()) { degree = std::stoi(toks[i+1]); }
+                }
             } else if (toks[0] == "interpolate") {
-                st = State::InCurveInterp; resetCurve(degree, knots, weights, ctrl, points);
-                if (toks.size() >= 3 && toks[1] == "degree") degree = std::stoi(toks[2]);
+                st = State::InCurveInterp; resetCurve(id, degree, knots, weights, ctrl, points);
+                for (std::size_t i = 1; i+1 < toks.size(); ++i) {
+                    if (toks[i] == "id" && i+1 < toks.size()) { id = std::stoi(toks[i+1]); }
+                    if (toks[i] == "degree" && i+1 < toks.size()) { degree = std::stoi(toks[i+1]); }
+                }
             } else {
                 throw std::runtime_error("NBS: expected 'curve' or 'interpolate'");
             }
         } else if (st == State::InCurveExplicit) {
             if (toks[0] == "degree" && toks.size() >= 2) {
                 degree = std::stoi(toks[1]);
+            } else if (toks[0] == "id" && toks.size() >= 2) {
+                id = std::stoi(toks[1]);
             } else if (toks[0] == "knots") {
                 for (std::size_t i = 1; i < toks.size(); ++i) knots.push_back(std::stod(toks[i]));
             } else if (toks[0] == "weights") {
@@ -109,18 +123,20 @@ bool readFile(const std::string& path, std::vector<Nurbs>& out) {
                 if ((toks.size()-1) % 2 != 0) throw std::runtime_error("NBS: ctrl requires pairs of x y");
                 for (std::size_t i = 1; i+1 < toks.size(); i += 2) ctrl.push_back(Nurbs::Point{std::stod(toks[i]), std::stod(toks[i+1])});
             } else if (toks[0] == "endcurve") {
-                finishExplicitOrThrow(degree, knots, weights, ctrl, out); st = State::Idle; resetCurve(degree, knots, weights, ctrl, points);
+                finishExplicitOrThrow(id, degree, knots, weights, ctrl, out); st = State::Idle; resetCurve(id, degree, knots, weights, ctrl, points);
             } else {
                 throw std::runtime_error("NBS: unknown token in explicit curve");
             }
         } else if (st == State::InCurveInterp) {
             if (toks[0] == "degree" && toks.size() >= 2) {
                 degree = std::stoi(toks[1]);
+            } else if (toks[0] == "id" && toks.size() >= 2) {
+                id = std::stoi(toks[1]);
             } else if (toks[0] == "points") {
                 if ((toks.size()-1) % 2 != 0) throw std::runtime_error("NBS: points requires pairs of x y");
                 for (std::size_t i = 1; i+1 < toks.size(); i += 2) points.push_back(Nurbs::Point{std::stod(toks[i]), std::stod(toks[i+1])});
             } else if (toks[0] == "endcurve") {
-                finishInterpOrThrow(degree, points, out); st = State::Idle; resetCurve(degree, knots, weights, ctrl, points);
+                finishInterpOrThrow(id, degree, points, out); st = State::Idle; resetCurve(id, degree, knots, weights, ctrl, points);
             } else {
                 throw std::runtime_error("NBS: unknown token in interpolate curve");
             }
@@ -142,9 +158,11 @@ bool readFile(const std::string& path, std::vector<Nurbs>& out, std::string* err
 bool writeFile(const std::string& path, const std::vector<Nurbs>& curves) {
     std::ofstream ofs(path);
     if (!ofs) return false;
-    ofs << "* XF-stream NBS 2D format\n";
+    ofs << "* XF-stream NBS 2D format v2 (with ids)\n";
+    int nextId = 0;
     for (const auto& c : curves) {
-        ofs << "curve degree " << c.degree() << "\n";
+        int cid = c.id() >= 0 ? c.id() : nextId++;
+        ofs << "curve id " << cid << " degree " << c.degree() << "\n";
         ofs << "knots";
         for (double u : c.knots()) ofs << ' ' << u;
         ofs << "\nweights";

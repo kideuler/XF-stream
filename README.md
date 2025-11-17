@@ -5,9 +5,14 @@ The general steps of this project will be the following:
 
 - write a small, lightweight nurbs library which takes in, control points, knot vector, degree, to construct a nurbs curve and can do interpolation.
 - From a "soup" of nurbs curves construct sets of closed loops and regions.
+- Make a file format that is able to describe regions using nurbs curves and loops.
+- For 1 region at first.
+- Make progressively complex 2D single region examples.
 - Transfer this geometrtic information and mesh using GMSH.
 - Grab the mesh and solve the quasilinear or use the MBO method to generate the crossfields using MFEM.
 - grab the data and detect and classify singularities.
+- use MIQ to make quad components.
+- Do same for arbitrary number of regions.
 
 
 Other Tasks:

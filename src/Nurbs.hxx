@@ -27,6 +27,7 @@ public:
 
 	// Basic metadata
 	int degree() const;
+	int id() const; // unique identifier (non-negative) or -1 if unset
 	std::size_t dimension() const; // Always 2
 	std::size_t numControlPoints() const;
 
@@ -37,6 +38,7 @@ public:
 
 	// Mutators (re-validate on change)
 	void setDegree(int degree);
+	void setId(int id);
 	void setControlPoints(const std::vector<Point>& controlPoints);
 	void setWeights(const std::vector<double>& weights);
 	void setKnots(const std::vector<double>& knotVector);
@@ -65,6 +67,7 @@ private:
 	void ensureWeightsSized();
 
 	int p_{0};
+	int id_{-1};
 	std::vector<Point> ctrlPts_;
 	std::vector<double> weights_; // size == ctrlPts_.size()
 	std::vector<double> knots_;   // non-decreasing, size m+1 where m = n+p+1

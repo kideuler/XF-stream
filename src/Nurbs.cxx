@@ -97,6 +97,8 @@ Nurbs::Nurbs(int degree,
 
 int Nurbs::degree() const { return p_; }
 
+int Nurbs::id() const { return id_; }
+
 std::size_t Nurbs::dimension() const { return 2; }
 
 std::size_t Nurbs::numControlPoints() const { return ctrlPts_.size(); }
@@ -108,6 +110,8 @@ const std::vector<double>& Nurbs::weights() const { return weights_; }
 const std::vector<double>& Nurbs::knots() const { return knots_; }
 
 void Nurbs::setDegree(int degree) { p_ = degree; }
+
+void Nurbs::setId(int id) { id_ = id; }
 
 void Nurbs::setControlPoints(const std::vector<Point>& controlPoints) {
 	ctrlPts_ = controlPoints;
