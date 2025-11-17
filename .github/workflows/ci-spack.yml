@@ -1,0 +1,109 @@
+name: CI (Spack)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+    env:
+      SPACK_ENV_NAME: xfstream-ci
+      SPACK_ROOT: /opt/spack
+      SPACK_VIEW: /opt/spack/view
+      CACHE_KEY_BASE: spack-env-v1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Spack
+        uses: spack/setup-spack@v2
+        with:
+          ref: v1.0.0  # Ensure Spack >=1.0.0
+          path: ${{ env.SPACK_ROOT }}
+
+      - name: Restore Spack cache
+        id: spack-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.SPACK_ROOT }}/var/spack/cache
+            ${{ env.SPACK_ROOT }}/var/spack/environments/${{ env.SPACK_ENV_NAME }}
+            ${{ env.SPACK_ROOT }}/opt/spack
+            ${{ env.SPACK_VIEW }}
+          key: ${{ env.CACHE_KEY_BASE }}-${{ runner.os }}-${{ hashFiles('spack.yaml') }}
+          restore-keys: |
+            ${{ env.CACHE_KEY_BASE }}-${{ runner.os }}-
+
+      - name: Create Spack environment (if missing)
+        run: |
+          set -euo pipefail
+          if [ ! -f spack.yaml ]; then
+            cat > spack.yaml <<'EOF'
+            spack:
+              specs:
+              - googletest
+              - gmsh
+              - mfem
+              view: $SPACK_VIEW
+              concretizer:
+                unify: true
+              packages:
+                all:
+                  target: [x86_64]
+            EOF
+          fi
+          spack env create -d . ${SPACK_ENV_NAME} || true
+          spack env activate -d .
+          spack solve || true
+
+      - name: Concretize & Install (skips if already present)
+        run: |
+          set -euo pipefail
+          spack env activate -d .
+          # Concretize
+          spack concretize
+          # Install only missing specs
+          for spec in googletest gmsh mfem; do
+            if ! spack find --loaded $spec >/dev/null 2>&1; then
+              if spack find $spec 2>&1 | grep -q 'No package matches'; then
+                spack install $spec
+              fi
+            fi
+          done
+          # Ensure view is populated (Spack will create/update)
+          spack view regenerate $SPACK_VIEW || true
+
+      - name: List installed packages
+        run: |
+          spack find
+          ls -l $SPACK_VIEW/include || true
+
+      - name: Configure project
+        run: |
+          set -euo pipefail
+          # Add Spack view to compiler & linker paths
+          export CMAKE_PREFIX_PATH="$SPACK_VIEW:$CMAKE_PREFIX_PATH"
+          export PKG_CONFIG_PATH="$SPACK_VIEW/lib/pkgconfig:$PKG_CONFIG_PATH"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j 2
+
+      - name: Run tests
+        run: |
+          ctest --test-dir build --output-on-failure
+
+      - name: Upload test results (artifacts)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/Testing
+
+      - name: Cache cleanup note
+        if: steps.spack-cache.outputs.cache-hit == 'true'
+        run: echo "Spack cache restored; install phase skipped for existing packages."
