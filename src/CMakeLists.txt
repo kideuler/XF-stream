@@ -1,15 +1,19 @@
 add_library(XFStream SHARED
-	Nurbs.cxx
-	LoopBuilder.cxx
-	RegionBuilder.cxx
-	MeshGenerator.cxx
-	NbsIO.cxx
-	NbtIO.cxx
-	Mesh.cxx
-	Laplace.cxx
+	geom/Nurbs.cxx
+	geom/LoopBuilder.cxx
+	geom/RegionBuilder.cxx
+    geom/NbsIO.cxx
+	geom/NbtIO.cxx
+	mesh/MeshGenerator.cxx
+	mesh/Mesh.cxx
+	sim/Laplace.cxx
 )
 
-target_include_directories(XFStream PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(XFStream PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/geom
+    ${CMAKE_CURRENT_SOURCE_DIR}/mesh
+    ${CMAKE_CURRENT_SOURCE_DIR}/sim
+)
 
 target_compile_features(XFStream PUBLIC cxx_std_17)
 target_link_libraries(XFStream PUBLIC Gmsh::gmsh)
