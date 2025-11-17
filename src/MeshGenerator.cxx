@@ -134,7 +134,9 @@ bool MeshGenerator::generate(const std::vector<Region>& regions,
     }
     gmsh::model::geo::synchronize();
     gmsh::model::mesh::generate(2);
-    gmsh::write(mshPath);
+    if (!mshPath.empty()) {
+        gmsh::write(mshPath);
+    }
     gmsh::finalize();
     return true;
 }

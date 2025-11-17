@@ -8,6 +8,21 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Gmsh REQUIRED)
 message(STATUS "Gmsh found: ${GMSH_LIBRARY}")
 
+# MFEM support
+find_package(MFEM REQUIRED)
+if(MFEM_FOUND)
+	find_path(UMFPACK_INCLUDE_DIR
+		NAMES umfpack.h
+		HINTS /opt/homebrew/include /usr/local/include /usr/include
+		PATH_SUFFIXES suitesparse SuiteSparse
+	)
+	if(UMFPACK_INCLUDE_DIR)
+		message(STATUS "Found UMFPACK headers at: ${UMFPACK_INCLUDE_DIR}")
+	else()
+		message(STATUS "UMFPACK headers not found; if MFEM requires them, set UMFPACK_INCLUDE_DIR to your SuiteSparse include path.")
+	endif()
+endif()
+
 add_subdirectory(src)
 
 include(CTest)

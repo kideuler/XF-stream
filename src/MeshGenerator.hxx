@@ -13,7 +13,7 @@ public:
     static bool generate(const std::vector<Region>& regions,
                          const std::vector<Nurbs>& curves,
                          double h,
-                         const std::string& mshPath);
+                         const std::string& mshPath = "");
 };
 
 #endif // MESH_GENERATOR_HXX
